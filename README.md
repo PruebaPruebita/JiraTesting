@@ -1,4 +1,3 @@
 # JiraTesting
 Project to test Github and Jira integration
-Pruebita
-Pruebita 2
+Soy BYTEIT-16-testitem
