@@ -23,7 +23,7 @@ jobs:
           BRANCH="${{ steps.vars.outputs.branch }}"
 
           # Regex: feature/<name>_sprint_<n>
-          if [[ "$BRANCH" =~ ^feature/(.*)_sprint_([0-9]+)$ ]]; then
+          if [[ "$BRANCH" =~ sprint_([0-9]+) ]]; then
             NAME="${BASH_REMATCH[1]}"
             SPRINT="${BASH_REMATCH[2]}"
             PREV_SPRINT=$((SPRINT - 1))
