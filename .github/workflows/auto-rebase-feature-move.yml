@@ -1,12 +1,12 @@
-name: Auto Rebase When Feature Moves to Next Sprint
+name: Auto Rebase Feature Sprint Flow
 
 on:
   create:
     branches:
-      - "feature/*"
+      - "feature/*_sprint_*"
 
 jobs:
-  detect-and-rebase:
+  rebase-feature:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,12 +16,13 @@ jobs:
           BRANCH="${{ github.ref_name }}"
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
 
-      - name: Check if branch matches feature/*_sprint_X pattern
+      # Extract feature name & sprint number
+      - name: Parse feature branch
         id: parse
         run: |
           BRANCH="${{ steps.vars.outputs.branch }}"
 
-          # Regex to extract name and sprint number
+          # Regex: feature/<name>_sprint_<n>
           if [[ "$BRANCH" =~ ^feature/(.*)_sprint_([0-9]+)$ ]]; then
             NAME="${BASH_REMATCH[1]}"
             SPRINT="${BASH_REMATCH[2]}"
@@ -35,50 +36,96 @@ jobs:
             echo "matched=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Stop if branch does not match expected pattern
+      - name: Stop if not a valid feature sprint branch
         if: steps.parse.outputs.matched == 'false'
         run: echo "Branch does not match feature/*_sprint_X pattern. Skipping."
 
-      - name: Check if previous sprint branch exists
-        id: check_prev
+      # ============================
+      #  FIRST REBASE: sprint_X
+      # ============================
+
+      - name: Check if sprint branch exists
+        id: check_sprint
         if: steps.parse.outputs.matched == 'true'
         run: |
-          PREV_BRANCH="feature/${{ steps.parse.outputs.name }}_sprint_${{ steps.parse.outputs.prev_sprint }}"
-          echo "prev_branch=$PREV_BRANCH" >> $GITHUB_OUTPUT
+          SPRINT_BRANCH="sprint_${{ steps.parse.outputs.sprint }}"
+          echo "sprint_branch=$SPRINT_BRANCH" >> $GITHUB_OUTPUT
 
-          # Check remote branch existence
-          if git ls-remote --heads origin $PREV_BRANCH | grep -q $PREV_BRANCH; then
+          if git ls-remote --heads origin $SPRINT_BRANCH | grep -q "$SPRINT_BRANCH"; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Stop if previous sprint branch does not exist
-        if: steps.check_prev.outputs.exists == 'false'
-        run: echo "Previous sprint branch does not exist. No rebase needed."
-
-      - name: Checkout new branch
-        if: steps.check_prev.outputs.exists == 'true'
+      - name: Checkout feature branch
+        if: steps.parse.outputs.matched == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.vars.outputs.branch }}
           fetch-depth: 0
           token: ${{ secrets.PAT_PUSH }}
 
-      - name: Perform rebase of new sprint branch onto old sprint branch
+      - name: Rebase onto sprint_X (if exists)
+        if: steps.check_sprint.outputs.exists == 'true'
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+
+          SPRINT_BRANCH="sprint_${{ steps.parse.outputs.sprint }}"
+          FEATURE_BRANCH="${{ steps.vars.outputs.branch }}"
+
+          echo "Rebasing $FEATURE_BRANCH onto $SPRINT_BRANCH..."
+          git fetch origin $SPRINT_BRANCH
+          git rebase origin/$SPRINT_BRANCH
+
+      - name: Log sprint rebase skip
+        if: steps.check_sprint.outputs.exists == 'false'
+        run: echo "No sprint branch found. Skipping first rebase."
+
+      # ============================
+      #  SECOND REBASE: previous sprint feature
+      # ============================
+
+      - name: Check if previous sprint feature branch exists
+        id: check_prev
+        if: steps.parse.outputs.matched == 'true'
+        run: |
+          PREV_BRANCH="feature/${{ steps.parse.outputs.name }}_sprint_${{ steps.parse.outputs.prev_sprint }}"
+          echo "prev_branch=$PREV_BRANCH" >> $GITHUB_OUTPUT
+
+          if git ls-remote --heads origin "$PREV_BRANCH" | grep -q "$PREV_BRANCH"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Rebase onto previous sprint feature (if exists)
         if: steps.check_prev.outputs.exists == 'true'
         run: |
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
 
           PREV_BRANCH="${{ steps.check_prev.outputs.prev_branch }}"
-          CUR_BRANCH="${{ steps.vars.outputs.branch }}"
+          FEATURE_BRANCH="${{ steps.vars.outputs.branch }}"
 
-          echo "Rebasing $CUR_BRANCH onto $PREV_BRANCH"
+          echo "Rebasing $FEATURE_BRANCH onto previous sprint feature $PREV_BRANCH..."
           git fetch origin $PREV_BRANCH
           git rebase origin/$PREV_BRANCH
 
-      - name: Push rebased branch
-        if: steps.check_prev.outputs.exists == 'true'
+      - name: Log skip of previous feature rebase
+        if: steps.check_prev.outputs.exists == 'false'
+        run: echo "Previous sprint feature branch not found — skipping feature migration rebase."
+
+      # ============================
+      #  PUSH RESULT
+      # ============================
+
+      - name: Push rebased feature branch
+        if: steps.parse.outputs.matched == 'true'
         run: |
+          echo "Pushing rebased branch..."
           git push --force-with-lease origin "${{ steps.vars.outputs.branch }}"
+
+      - name: Done
+        run: |
+          echo '✔️ Workflow completed: rebases finished.'
