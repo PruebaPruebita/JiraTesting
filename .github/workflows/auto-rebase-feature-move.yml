@@ -22,18 +22,16 @@ jobs:
         run: |
           BRANCH="${{ steps.vars.outputs.branch }}"
 
-          # Regex: feature/<name>_sprint_<n>
           if [[ "$BRANCH" =~ sprint_([0-9]+) ]]; then
-            NAME="${BASH_REMATCH[1]}"
-            SPRINT="${BASH_REMATCH[2]}"
-            PREV_SPRINT=$((SPRINT - 1))
-
-            echo "matched=true" >> $GITHUB_OUTPUT
-            echo "name=$NAME" >> $GITHUB_OUTPUT
-            echo "sprint=$SPRINT" >> $GITHUB_OUTPUT
-            echo "prev_sprint=$PREV_SPRINT" >> $GITHUB_OUTPUT
+              NAME="${BASH_REMATCH[0]}"                # full match: "sprint_123"
+              SPRINT="${BASH_REMATCH[1]}"              # capture: "123"
+              PREV_SPRINT=$((10#$SPRINT - 1))          # force base-10 to avoid octal issues
+              echo "matched=true" >> $GITHUB_OUTPUT
+              echo "name=$NAME" >> $GITHUB_OUTPUT
+              echo "sprint=$SPRINT" >> $GITHUB_OUTPUT
+              echo "prev_sprint=$PREV_SPRINT" >> $GITHUB_OUTPUT
           else
-            echo "matched=false" >> $GITHUB_OUTPUT
+              echo "matched=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Stop if not a valid feature sprint branch
